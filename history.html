@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Machine Stop History</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            color: #333;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        h1 {
+            color: #2c3e50;
+        }
+        table {
+            width: 100%;
+            max-width: 900px;
+            border-collapse: collapse;
+            margin: 20px 0;
+        }
+        table, th, td {
+            border: 1px solid #ddd;
+        }
+        th, td {
+            padding: 10px;
+            text-align: center;
+        }
+        th {
+            background-color: #2980b9;
+            color: white;
+        }
+        button.back-btn {
+            background-color: #e67e22;
+            color: white;
+            border: none;
+            padding: 15px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            margin-top: 20px;
+        }
+        button.back-btn:hover {
+            background-color: #d35400;
+        }
+        .verify-btn {
+            background-color: red;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        .verified-btn {
+            background-color: green;
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 5px;
+            cursor: not-allowed;
+        }
+        .popup {
+            display: none;
+            position: fixed;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+            z-index: 1000;
+            width: 80%;
+            max-width: 600px;
+            height: auto;
+        }
+        .popup h2 {
+            margin-top: 0;
+        }
+        .popup input, .popup textarea {
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .popup button {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 10px 15px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin-right: 10px;
+        }
+        .popup button:hover {
+            background-color: #2980b9;
+        }
+        .popup .close-btn {
+            background-color: #e74c3c;
+        }
+        .popup .close-btn:hover {
+            background-color: #c0392b;
+        }
+        .popup .modify-btn {
+            background-color: #f39c12;
+        }
+        .popup .modify-btn:hover {
+            background-color: #e67e22;
+        }
+        .last-update {
+            text-align: right;
+            font-size: 0.9em;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <h1>Machine Stop History</h1>
+    <table id="history-table">
+        <tr>
+            <th>Start</th>
+            <th>Machine</th>
+            <th>Reason</th>
+            <th>End</th>
+            <th>Elapsed Time</th>
+            <th>Action</th>
+        </tr>
+    </table>
+    <button class="back-btn" onclick="goBack()">Back to Tracker</button>
+
+    <!-- Verify Popup -->
+    <div id="verify-popup" class="popup">
+        <h2>Verify</h2>
+        <label for="cost-used">Cost Used:</label>
+        <input type="text" id="cost-used" placeholder="Enter cost used">
+        <label for="problem-description">Problem Description:</label>
+        <textarea id="problem-description" rows="4" placeholder="Describe the problem"></textarea>
+        <label for="solving-method">Solving Method:</label>
+        <textarea id="solving-method" rows="4" placeholder="Describe the solving method"></textarea>
+        <button onclick="submitVerification()">Submit</button>
+        <button class="close-btn" onclick="closePopup('verify-popup')">Close</button>
+    </div>
+
+    <!-- Verified Popup -->
+    <div id="verified-popup" class="popup">
+        <h2>Verified</h2>
+        <p><strong>Cost Used:</strong> <span id="verified-cost"></span></p>
+        <p><strong>Problem Description:</strong> <span id="verified-description"></span></p>
+        <p><strong>Solving Method:</strong> <span id="verified-method"></span></p>
+        <p class="last-update" id="last-update"></p>
+        <button class="modify-btn" onclick="requestPassword('modify')">Modify</button>
+        <button class="close-btn" onclick="closePopup('verified-popup')">Close</button>
+    </div>
+
+    <script>
+        let csvData = JSON.parse(localStorage.getItem('machineTrackerState'))?.csvData || [];
+
+        function loadHistory() {
+            const historyTable = document.getElementById('history-table');
+            historyTable.innerHTML = `
+                <tr>
+                    <th>Start</th>
+                    <th>Machine</th>
+                    <th>Reason</th>
+                    <th>End</th>
+                    <th>Elapsed Time</th>
+                    <th>Action</th>
+                </tr>
+            `;
+            csvData.forEach((row, index) => {
+                const tr = document.createElement('tr');
+                tr.dataset.index = index;
+                tr.innerHTML = `
+                    <td>${row.start}</td>
+                    <td>${row.machine}</td>
+                    <td>${row.reason}</td>
+                    <td>${row.end || ''}</td>
+                    <td>${row.elapsed || ''}</td>
+                    <td>
+                        ${row.verified ? 
+                            `<button class="verified-btn" onclick="openVerifiedPopup(${index})">Verified</button>` : 
+                            `<button class="verify-btn" onclick="requestPassword('verify', ${index})">Verify</button>`
+                        }
+                    </td>
+                `;
+                historyTable.appendChild(tr);
+            });
+        }
+
+        function requestPassword(action, index = null) {
+            const password = prompt("Please enter the password:");
+            if (password === "1234") {
+                if (action === 'verify') {
+                    openVerifyPopup(index);
+                } else if (action === 'modify') {
+                    modifyVerification();
+                }
+            } else {
+                alert("Incorrect password. Access denied.");
+            }
+        }
+
+        function openVerifyPopup(index) {
+            if (csvData[index]) {
+                const row = csvData[index];
+                document.getElementById('verify-popup').style.display = 'block';
+                document.getElementById('cost-used').value = row.costUsed || '';
+                document.getElementById('problem-description').value = row.problemDescription || '';
+                document.getElementById('solving-method').value = row.solvingMethod || '';
+                document.getElementById('verify-popup').dataset.index = index;
+            }
+        }
+
+        function submitVerification() {
+            const index = document.getElementById('verify-popup').dataset.index;
+            if (index === undefined || !csvData[index]) return;
+
+            const row = csvData[index];
+            row.costUsed = document.getElementById('cost-used').value;
+            row.problemDescription = document.getElementById('problem-description').value;
+            row.solvingMethod = document.getElementById('solving-method').value;
+            row.verified = true;
+            row.lastUpdate = new Date().toLocaleString('en-US', { timeZone: 'Asia/Kuala_Lumpur', hour12: false });
+
+            localStorage.setItem('machineTrackerState', JSON.stringify({ csvData }));
+            updateHistoryRow(index);
+            closePopup('verify-popup');
+        }
+
+        function updateHistoryRow(index) {
+            const row = csvData[index];
+            const tableRows = document.querySelectorAll('#history-table tr');
+            if (tableRows[index + 1]) {
+                const tr = tableRows[index + 1];
+                tr.innerHTML = `
+                    <td>${row.start}</td>
+                    <td>${row.machine}</td>
+                    <td>${row.reason}</td>
+                    <td>${row.end || ''}</td>
+                    <td>${row.elapsed || ''}</td>
+                    <td>
+                        ${row.verified ? 
+                            `<button class="verified-btn" onclick="openVerifiedPopup(${index})">Verified</button>` : 
+                            `<button class="verify-btn" onclick="requestPassword('verify', ${index})">Verify</button>`
+                        }
+                    </td>
+                `;
+            }
+        }
+
+        let currentIndex = null;
+
+        function openVerifiedPopup(index) {
+            if (csvData[index]) {
+                currentIndex = index; // Store the current index
+                const row = csvData[index];
+                document.getElementById('verified-cost').textContent = row.costUsed || '';
+                document.getElementById('verified-description').textContent = row.problemDescription || '';
+                document.getElementById('verified-method').textContent = row.solvingMethod || '';
+                document.getElementById('last-update').textContent = `Last updated by: ${row.lastUpdate || ''}`;
+                document.getElementById('verified-popup').style.display = 'block';
+            }
+        }
+
+        function modifyVerification() {
+            closePopup('verified-popup');
+            openVerifyPopup(currentIndex); // Use the stored current index to open the verify popup
+        }
+
+        function closePopup(popupId) {
+            document.getElementById(popupId).style.display = 'none';
+        }
+
+        function goBack() {
+            window.location.href = 'index1.html'; // Redirect back to the tracker page
+        }
+
+        window.onload = loadHistory;
+    </script>
+</body>
+</html>
