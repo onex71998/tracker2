@@ -4,14 +4,11 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Machine Stop Time Tracker</title>
-
-<script type="module">
-        // Import the functions you need from the SDKs you need
+    <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
         import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-analytics.js";
-        import { getDatabase, ref, set } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
+        import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
 
-        // Your web app's Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyByW5mvlzUYirCE6BKChE1TbPUqsHAJCoI",
             authDomain: "tracker-80c47.firebaseapp.com",
@@ -23,348 +20,63 @@
             measurementId: "G-QWR18QPPX2"
         };
 
-        // Initialize Firebase
         const app = initializeApp(firebaseConfig);
         const analytics = getAnalytics(app);
-        const database = getDatabase(app);  // Initialize Realtime Database
+        const database = getDatabase(app);
 
-        window.startStop = (machine, reason) => {
-            if (!stopTimes[machine] || !stopTimes[machine][reason]) return;
-
-            if (stopTimes[machine][reason].start === null) {
-                stopTimes[machine][reason].start = Date.now();
-                intervals[machine][reason] = setInterval(() => updateDisplay(machine, reason), 1000);
-
-                if (stopTimes[machine].machineStart === null) {
-                    stopTimes[machine].machineStart = Date.now();
-                    machineIntervals[machine] = setInterval(() => updateMachineDisplay(machine), 1000);
-                    machineRunning[machine] = true;
-                }
-
-                disableMachineControls(machine, reason);
-
-                const startBtn = document.getElementById(`${machine}-${reason}-start-btn`);
-                if (startBtn) {
-                    startBtn.disabled = true;
-                    startBtn.classList.add('disabled');
-                }
-
-                const stopBtn = document.getElementById(`${machine}-${reason}-stop-btn`);
-                if (stopBtn) {
-                    stopBtn.disabled = false;
-                    stopBtn.classList.remove('disabled');
-                }
-
-                // Send WhatsApp message
-                const startTime = formatTimestamp(stopTimes[machine][reason].start);
-                sendWhatsAppStartMessage(machine, reason, startTime);
-
-                // Update Firebase
-                set(ref(database, `machines/${machine}/${reason}`), {
-                    start: stopTimes[machine][reason].start,
-                    elapsed: stopTimes[machine][reason].elapsed,
-                    reasonElapsed: stopTimes[machine][reason].reasonElapsed,
-                    history: stopTimes[machine][reason].history
-                });
-            }
-        };
-
-        window.stopStop = (machine, reason) => {
-            if (!stopTimes[machine] || !stopTimes[machine][reason]) return;
-
-            const picName = prompt("Please enter the PIC name who solved the issue:");
-            if (!picName) {
-                alert("You must enter a name to stop the timer.");
-                return;
-            }
-
-            if (stopTimes[machine][reason].start !== null) {
-                const now = new Date();
-                const startTimestamp = stopTimes[machine][reason].start;
-                const endTimestamp = now.toISOString();
-                const elapsed = Math.floor((now - new Date(startTimestamp)) / 1000);
-
-                stopTimes[machine][reason].reasonElapsed += elapsed;
-                stopTimes[machine][reason].elapsed = 0;
-                stopTimes[machine][reason].start = null;
-                clearInterval(intervals[machine][reason]);
-                updateDisplay(machine, reason);
-
-                const historyEntry = {
-                    start: formatTimestamp(startTimestamp),
-                    end: formatTimestamp(endTimestamp),
-                    elapsed: formatTime(stopTimes[machine][reason].reasonElapsed)
-                };
-                stopTimes[machine][reason].history.push(historyEntry);
-
-                const entry = {
-                    start: formatTimestamp(startTimestamp),
-                    machine: machine,
-                    reason: reason,
-                    end: formatTimestamp(endTimestamp),
-                    elapsed: formatTime(stopTimes[machine][reason].reasonElapsed),
-                    picName: picName
-                };
-                csvData.push(entry);
-
-                sendWhatsAppStopMessage(machine, reason, formatTimestamp(startTimestamp), formatTime(stopTimes[machine][reason].reasonElapsed), picName);
-
-                // Update Firebase
-                set(ref(database, `machines/${machine}/${reason}`), {
-                    start: null,
-                    elapsed: stopTimes[machine][reason].elapsed,
-                    reasonElapsed: stopTimes[machine][reason].reasonElapsed,
-                    history: stopTimes[machine][reason].history
-                });
-            }
-
-            if (stopTimes[machine].machineStart !== null) {
-                const now = new Date();
-                const elapsed = Math.floor((now - new Date(stopTimes[machine].machineStart)) / 1000);
-                stopTimes[machine].totalElapsed += elapsed;
-                stopTimes[machine].machineStart = null;
-                clearInterval(machineIntervals[machine]);
-                updateMachineDisplay(machine);
-                machineRunning[machine] = false;
-            }
-
-            const startBtn = document.getElementById(`${machine}-${reason}-start-btn`);
-            if (startBtn) {
-                startBtn.disabled = false;
-                startBtn.classList.remove('disabled');
-            }
-
-            const stopBtn = document.getElementById(`${machine}-${reason}-stop-btn`);
-            if (stopBtn) {
-                stopBtn.disabled = true;
-                stopBtn.classList.add('disabled');
-            }
-
-            saveState(); // Save state whenever a timer is stopped
-            resetMachineButtons(machine);
-        };
-
-        // Place other functions (e.g., updateDisplay, updateMachineDisplay, etc.) here
-        // ...
-    </script>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f4f4f9;
-            color: #333;
-            margin: 0;
-            padding: 20px;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        h1 {
-            color: #2c3e50;
-        }
-        .container {
-            width: 100%;
-            max-width: 900px;
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-            margin-bottom: 20px;
-        }
-        .machine {
-            margin-bottom: 20px;
-            border-bottom: 1px solid #ddd;
-            padding-bottom: 10px;
-        }
-        .machine:last-child {
-            border-bottom: none;
-        }
-        .machine h2 {
-            color: #2980b9;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .stop-reason {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 10px;
-        }
-        .stop-reason div {
-            flex-grow: 1;
-            text-align: left;
-            font-weight: bold;
-        }
-        .stop-reason button {
-            background-color: #2980b9;
-            color: white;
-            border: none;
-            padding: 10px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-            width: 120px;
-            margin-right: 10px;
-            margin-left: 10px;
-        }
-        .stop-reason button.stop {
-            background-color: #e74c3c;
-        }
-        .stop-reason button:hover {
-            background-color: #1c6ea4;
-        }
-        .stop-reason button.stop:hover {
-            background-color: #c0392b;
-        }
-        .stop-reason button.disabled {
-            background-color: #bdc3c7;
-            cursor: not-allowed;
-            pointer-events: none;
-        }
-        .stop-reason div.disabled {
-            color: #bdc3c7;
-        }
-        .history-btn {
-            background-color: #3498db;
-            color: white;
-            border: none;
-            padding: 10px 15px;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-            margin-top: 10px;
-        }
-        .history-btn:hover {
-            background-color: #2980b9;
-        }
-        .history-container {
-            display: none;
-            background-color: #ecf0f1;
-            padding: 10px;
-            border-radius: 5px;
-            margin-top: 10px;
-        }
-        .history-item {
-            padding: 5px 0;
-            border-bottom: 1px solid #bdc3c7;
-        }
-        .history-item:last-child {
-            border-bottom: none;
-        }
-        .export-btn, .reset-btn {
-            background-color: #27ae60;
-            color: white;
-            border: none;
-            padding: 15px 20px;
-            border-radius: 5px;
-            cursor: pointer;
-            transition: background-color 0.3s;
-            margin-top: 20px;
-        }
-        .export-btn:hover, .reset-btn:hover {
-            background-color: #219150;
-        }
-        .datetime-picker {
-            margin-top: 20px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-        .datetime-picker input {
-            margin: 0 5px;
-            padding: 5px;
-            font-size: 16px;
-        }
-	.reset-all-btn {
-    background-color: #e74c3c;
-    color: white;
-    border: none;
-    padding: 15px 20px;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: background-color 0.3s;
-    margin-top: 20px;
-}
-
-.reset-all-btn:hover {
-    background-color: #c0392b;
-}
-
-    </style>
-</head>
-<body>
-    <h1>Machine Stop Time Tracker</h1>
-    <div class="container" id="machines"></div>
-    <div class="datetime-picker">
-        <input type="datetime-local" id="start-date" />
-        <input type="datetime-local" id="end-date" />
-    </div>
-    <button class="export-btn" onclick="exportData()">Export to CSV</button>
-
-    <script>
-        const machines = ["B2", "B3", "B4", "FS02", "FS05", "FS04"];
-        const reasons = [
-            "Change Lot",
-            "Machine / Mould Problem",
-            "Production Off / Lack of Man Power",
-            "Calibration / Routine Maintenance",
-            "Quality Issue",
-            "Button Stuck / Double Clamp",
-            "Others"
-        ];
+        const machines = ['Machine1', 'Machine2'];  // Replace with your actual machines
+        const reasons = ['Reason1', 'Reason2'];    // Replace with your actual reasons
 
         let stopTimes = {};
         let intervals = {};
         let machineIntervals = {};
         let machineRunning = {};
-        let csvData = []; // To store CSV data
+        let csvData = [];
 
-        function init() {
-    const machineContainer = document.getElementById('machines');
-    machines.forEach(machine => {
-        stopTimes[machine] = {};
-        intervals[machine] = {};
-        stopTimes[machine].totalElapsed = 0;
-        stopTimes[machine].machineStart = null;
-        machineIntervals[machine] = null;
-        machineRunning[machine] = false;
+        window.init = function() {
+            const machineContainer = document.getElementById('machines');
+            machines.forEach(machine => {
+                stopTimes[machine] = {};
+                intervals[machine] = {};
+                stopTimes[machine].totalElapsed = 0;
+                stopTimes[machine].machineStart = null;
+                machineIntervals[machine] = null;
+                machineRunning[machine] = false;
 
-        const machineDiv = document.createElement('div');
-        machineDiv.className = 'machine';
-        machineDiv.innerHTML = `<h2>Machine ${machine}<span id="${machine}-total-time">00:00:00</span></h2>`;
+                const machineDiv = document.createElement('div');
+                machineDiv.className = 'machine';
+                machineDiv.innerHTML = `<h2>Machine ${machine}<span id="${machine}-total-time">00:00:00</span></h2>`;
 
-        reasons.forEach(reason => {
-            stopTimes[machine][reason] = { start: null, elapsed: 0, reasonElapsed: 0, history: [] };
+                reasons.forEach(reason => {
+                    stopTimes[machine][reason] = { start: null, elapsed: 0, reasonElapsed: 0, history: [] };
 
-            const reasonDiv = document.createElement('div');
-            reasonDiv.className = 'stop-reason';
-            reasonDiv.innerHTML = `
-                <div id="${machine}-${reason}-reason-name">${reason}</div>
-                <span id="${machine}-${reason}-reason-time">00:00:00</span>
-                <button id="${machine}-${reason}-start-btn" onclick="startStop('${machine}', '${reason}')">Start</button>
-                <button id="${machine}-${reason}-stop-btn" class="stop disabled" onclick="stopStop('${machine}', '${reason}')" disabled>Stop</button>
-                <span id="${machine}-${reason}-time">00:00:00</span>
-            `;
-            machineDiv.appendChild(reasonDiv);
-        });
+                    const reasonDiv = document.createElement('div');
+                    reasonDiv.className = 'stop-reason';
+                    reasonDiv.innerHTML = `
+                        <div id="${machine}-${reason}-reason-name">${reason}</div>
+                        <span id="${machine}-${reason}-reason-time">00:00:00</span>
+                        <button id="${machine}-${reason}-start-btn" onclick="startStop('${machine}', '${reason}')">Start</button>
+                        <button id="${machine}-${reason}-stop-btn" class="stop disabled" onclick="stopStop('${machine}', '${reason}')" disabled>Stop</button>
+                        <span id="${machine}-${reason}-time">00:00:00</span>
+                    `;
+                    machineDiv.appendChild(reasonDiv);
+                });
 
-        // Add reset button for the machine
-        machineDiv.innerHTML += `
-            <button class="reset-btn" onclick="resetMachine('${machine}')">Reset</button>
-        `;
+                machineDiv.innerHTML += `
+                    <button class="reset-btn" onclick="resetMachine('${machine}')">Reset</button>
+                `;
 
-        machineContainer.appendChild(machineDiv);
-    });
+                machineContainer.appendChild(machineDiv);
+            });
 
-    loadState(); // Load the timer state when initializing
-}
+            loadState();
+        }
 
-
-        function updateDisplay(machine, reason) {
+        window.updateDisplay = function(machine, reason) {
             const timeDisplay = document.getElementById(`${machine}-${reason}-time`);
             const reasonTimeDisplay = document.getElementById(`${machine}-${reason}-reason-time`);
 
-            if (!timeDisplay || !reasonTimeDisplay) return; // Check if elements exist
+            if (!timeDisplay || !reasonTimeDisplay) return;
 
             let elapsed = stopTimes[machine][reason].elapsed || 0;
             let reasonElapsed = stopTimes[machine][reason].reasonElapsed || 0;
@@ -379,10 +91,10 @@
             reasonTimeDisplay.textContent = formatTime(reasonElapsed);
         }
 
-        function updateMachineDisplay(machine) {
+        window.updateMachineDisplay = function(machine) {
             const totalTimeDisplay = document.getElementById(`${machine}-total-time`);
 
-            if (!totalTimeDisplay) return; // Check if element exists
+            if (!totalTimeDisplay) return;
 
             let elapsed = stopTimes[machine].totalElapsed || 0;
             if (stopTimes[machine].machineStart !== null) {
@@ -399,57 +111,61 @@
         }
 
         function formatTimestamp(timestamp) {
-    const date = new Date(timestamp);
-    
-    // Check if date is valid
-    if (isNaN(date.getTime())) return '';
+            const date = new Date(timestamp);
+            if (isNaN(date.getTime())) return '';
 
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    const hours = String(date.getHours()).padStart(2, '0');
-    const minutes = String(date.getMinutes()).padStart(2, '0');
-    const seconds = String(date.getSeconds()).padStart(2, '0');
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const seconds = String(date.getSeconds()).padStart(2, '0');
 
-    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-}
+            return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+        }
 
-        function disableMachineControls(machine, activeReason) {
-    reasons.forEach(reason => {
-        if (reason !== activeReason) {
-            const startBtn = document.getElementById(`${machine}-${reason}-start-btn`);
+        function enableStopButton(machine, reason) {
             const stopBtn = document.getElementById(`${machine}-${reason}-stop-btn`);
-            if (startBtn) {
-                startBtn.classList.add('disabled');
-                startBtn.disabled = true;
-            }
             if (stopBtn) {
-                stopBtn.classList.add('disabled');
-                stopBtn.disabled = true;
+                stopBtn.classList.remove('disabled');
+                stopBtn.disabled = false;
             }
         }
-    });
-}
 
+        function disableMachineControls(machine, activeReason) {
+            reasons.forEach(reason => {
+                if (reason !== activeReason) {
+                    const startBtn = document.getElementById(`${machine}-${reason}-start-btn`);
+                    const stopBtn = document.getElementById(`${machine}-${reason}-stop-btn`);
+                    if (startBtn) {
+                        startBtn.classList.add('disabled');
+                        startBtn.disabled = true;
+                    }
+                    if (stopBtn) {
+                        stopBtn.classList.add('disabled');
+                        stopBtn.disabled = true;
+                    }
+                }
+            });
+        }
 
-function sendWhatsAppStartMessage(machineName, stopReason, startTime) {
-    const message = `${machineName} Stop\nReason: ${stopReason}\nTime: ${startTime}`;
-    const encodedMessage = encodeURIComponent(message);
-    const phoneNumber = '60175347817';  // replace with the actual phone number
-    const whatsappURL = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
+        function sendWhatsAppStartMessage(machineName, stopReason, startTime) {
+            const message = `${machineName} Stop\nReason: ${stopReason}\nTime: ${startTime}`;
+            const encodedMessage = encodeURIComponent(message);
+            const phoneNumber = '60175347817'; 
+            const whatsappURL = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
 
-    window.open(whatsappURL, '_blank');
-}
+            window.open(whatsappURL, '_blank');
+        }
 
+        function sendWhatsAppStopMessage(machineName, stopReason, startTime, totalElapsed, picName) {
+            const message = `${machineName} Stop\nReason: ${stopReason}\nTime: ${startTime}\nElapsed: ${totalElapsed}\nPIC Name: ${picName}`;
+            const encodedMessage = encodeURIComponent(message);
+            const phoneNumber = '60175347817';
+            const whatsappURL = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
 
-function sendWhatsAppStopMessage(machineName, stopReason, startTime, totalElapsed, picName) {
-    const message = `${machineName} Stop\nReason: ${stopReason}\nTime: ${startTime}\nElapsed: ${totalElapsed}\nPIC Name: ${picName}`;
-    const encodedMessage = encodeURIComponent(message);
-    const phoneNumber = '60175347817';  // replace with the actual phone number
-    const whatsappURL = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
-
-    window.open(whatsappURL, '_blank');
-}
+            window.open(whatsappURL, '_blank');
+        }
 
         function enableAllControls(machine) {
             reasons.forEach(reason => {
@@ -470,271 +186,137 @@ function sendWhatsAppStopMessage(machineName, stopReason, startTime, totalElapse
             });
         }
 
-
         function exportData() {
-    const startDate = document.getElementById('start-date').value;
-    const endDate = document.getElementById('end-date').value;
+            const startDate = document.getElementById('start-date').value;
+            const endDate = document.getElementById('end-date').value;
 
-    if (!startDate || !endDate) {
-        alert('Please select start and end dates.');
-        return;
-    }
-
-    const startTime = new Date(startDate).getTime();
-    const endTime = new Date(endDate).getTime();
-
-    if (startTime >= endTime) {
-        alert('End date must be after start date.');
-        return;
-    }
-
-    console.log("Selected Start Date:", startDate, "Time:", startTime);
-    console.log("Selected End Date:", endDate, "Time:", endTime);
-
-    // Filter data based on selected date range
-    let filteredData = csvData.filter(row => {
-        const rowStartTime = new Date(row.start).getTime(); // Convert to milliseconds
-        const rowEndTime = new Date(row.end).getTime();     // Convert to milliseconds
-
-        console.log(`Checking row: ${row.start}, Time: ${rowStartTime}`);
-        
-        // Check if the row's end time is within the selected range
-        return (rowStartTime >= startTime && rowStartTime <= endTime) || 
-               (rowEndTime >= startTime && rowEndTime <= endTime) ||
-               (rowStartTime <= startTime && rowEndTime >= endTime);
-    });
-
-    console.log("Filtered Data:", filteredData);
-
-    if (filteredData.length === 0) {
-        alert('No data available for the selected date range.');
-        return;
-    }
-
-    const csvContent = "data:text/csv;charset=utf-8," 
-        + "Start,Machine,Reason,End,Elapsed,PIC Name\n"
-        + filteredData.map(row => 
-            `${row.start},${row.machine},${row.reason},${row.end},${row.elapsed},${row.picName || ''}`
-        ).join("\n");
-
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `machine_stop_time_${startDate}_to_${endDate}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-}
-
-
-	function resetMachine(machine) {
-    // Check if any timer is running
-    const anyTimerRunning = reasons.some(reason => stopTimes[machine][reason].start !== null);
-
-    if (anyTimerRunning) {
-        // Show alert if any timer is running
-        alert('The machine cannot be reset while any timer is running.');
-    } else {
-        // Confirm reset if no timers are running
-        const confirmReset = confirm('Are you sure you want to reset the machine timers? This action cannot be undone.');
-
-        if (confirmReset) {
-            // Reset all timers and update displays
-            reasons.forEach(reason => {
-                stopTimes[machine][reason] = { start: null, elapsed: 0, reasonElapsed: 0, history: [] };
-                clearInterval(intervals[machine][reason]);
-
-                // Update display for each reason
-                document.getElementById(`${machine}-${reason}-time`).textContent = "00:00:00";
-                document.getElementById(`${machine}-${reason}-reason-time`).textContent = "00:00:00";
-            });
-
-            stopTimes[machine].totalElapsed = 0;
-            stopTimes[machine].machineStart = null;
-            clearInterval(machineIntervals[machine]);
-
-            // Update display for total machine time
-            document.getElementById(`${machine}-total-time`).textContent = "00:00:00";
-            machineRunning[machine] = false;
-
-            // Reset all buttons to initial state
-            resetMachineButtons(machine);
-
-            // Optionally, you might want to save the state here as well
-            saveState();
-        }
-    }
-}
-
-
-	function resetMachineButtons(machine) {
-    reasons.forEach(reason => {
-        const startBtn = document.getElementById(`${machine}-${reason}-start-btn`);
-        const stopBtn = document.getElementById(`${machine}-${reason}-stop-btn`);
-
-        if (startBtn) {
-            console.log(`Resetting Start Button for ${machine}-${reason}: Disabled: ${startBtn.disabled}`);
-            startBtn.classList.remove('disabled');
-            startBtn.disabled = false;
-        }
-        if (stopBtn) {
-            console.log(`Resetting Stop Button for ${machine}-${reason}: Disabled: ${stopBtn.disabled}`);
-            stopBtn.classList.add('disabled');
-            stopBtn.disabled = true;
-        }
-    });
-}
-
-
-
-
-        function toggleHistory(machine) {
-    const historyContainer = document.getElementById(`${machine}-history`);
-    if (!historyContainer) return;
-
-    // Clear current history display
-    historyContainer.innerHTML = '';
-
-    if (historyContainer.style.display === 'none' || historyContainer.style.display === '') {
-        // Display history
-        historyContainer.style.display = 'block';
-
-        reasons.forEach(reason => {
-            const history = stopTimes[machine][reason].history;
-            if (!history || history.length === 0) {
-                // Debugging statement to check if history is available
-                console.log(`No history found for machine ${machine} and reason ${reason}`);
+            if (!startDate || !endDate) {
+                alert('Please select start and end dates.');
                 return;
             }
 
-            history.forEach(entry => {
-                const historyItem = document.createElement('div');
-                historyItem.className = 'history-item';
-                historyItem.innerText = `Reason: ${reason}, Start: ${formatTimestamp(entry.start)}, End: ${formatTimestamp(entry.end)}, Elapsed: ${formatTime(entry.elapsed)}`;
-                historyContainer.appendChild(historyItem);
+            const startTime = new Date(startDate).getTime();
+            const endTime = new Date(endDate).getTime();
+
+            if (startTime >= endTime) {
+                alert('End date must be after start date.');
+                return;
+            }
+
+            let filteredData = csvData.filter(row => {
+                const rowStartTime = new Date(row.startTime).getTime();
+                return rowStartTime >= startTime && rowStartTime <= endTime;
             });
 
-            // Debugging statement to verify the contents of historyContainer
-            console.log(`History for machine ${machine} and reason ${reason}:`, historyContainer.innerHTML);
-        });
-    } else {
-        // Hide history
-        historyContainer.style.display = 'none';
-    }
-}
+            if (filteredData.length === 0) {
+                alert('No data found for the selected date range.');
+                return;
+            }
 
+            const csvContent = 'data:text/csv;charset=utf-8,' +
+                filteredData.map(row => Object.values(row).join(',')).join('\n');
 
-	function saveState() {
-    const state = {
-        stopTimes,
-        csvData,
-        buttonStates: {}
-    };
-
-    machines.forEach(machine => {
-        state.buttonStates[machine] = {};
-        reasons.forEach(reason => {
-            const startBtn = document.getElementById(`${machine}-${reason}-start-btn`);
-            const stopBtn = document.getElementById(`${machine}-${reason}-stop-btn`);
-            state.buttonStates[machine][reason] = {
-                startBtnDisabled: startBtn ? startBtn.disabled : true,
-                stopBtnDisabled: stopBtn ? stopBtn.disabled : true
-            };
-        });
-    });
-
-    console.log("Saving state:", state); // Debugging statement
-    localStorage.setItem('machineTrackerState', JSON.stringify(state));
-}
-
-	
-      function loadState() {
-    // Example load logic
-    machines.forEach(machine => {
-        if (!stopTimes[machine]) {
-            stopTimes[machine] = {};
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement('a');
+            link.setAttribute('href', encodedUri);
+            link.setAttribute('download', 'exported_data.csv');
+            document.body.appendChild(link);
+            link.click();
         }
 
-        reasons.forEach(reason => {
-            if (!stopTimes[machine][reason]) {
-                stopTimes[machine][reason] = { start: null, elapsed: 0, reasonElapsed: 0, history: [] };
+        function loadState() {
+            const dbRef = ref(database, 'machineStopTracker');
+
+            onValue(dbRef, (snapshot) => {
+                const data = snapshot.val();
+                if (data) {
+                    Object.keys(data).forEach(machine => {
+                        if (!stopTimes[machine]) return;
+                        stopTimes[machine] = data[machine];
+                        updateMachineDisplay(machine);
+
+                        reasons.forEach(reason => {
+                            if (stopTimes[machine][reason]) {
+                                updateDisplay(machine, reason);
+                            }
+                        });
+                    });
+                }
+            });
+        }
+
+        function saveState() {
+            const dbRef = ref(database, 'machineStopTracker');
+            set(dbRef, stopTimes);
+        }
+
+        window.startStop = function(machine, reason) {
+            if (machineRunning[machine]) {
+                alert('Machine is already running.');
+                return;
             }
 
-            // Make sure to check if stopTimes[machine][reason] exists before accessing its properties
-            if (stopTimes[machine][reason]) {
-                // Perform operations with stopTimes[machine][reason]
-                console.log(`Machine: ${machine}, Reason: ${reason}`, stopTimes[machine][reason]);
+            const now = Date.now();
+            stopTimes[machine][reason].start = now;
+            stopTimes[machine][reason].reasonElapsed = 0;
+            stopTimes[machine][reason].elapsed = 0;
+            stopTimes[machine].machineStart = now;
+            stopTimes[machine].totalElapsed = 0;
+            machineIntervals[machine] = setInterval(() => updateDisplay(machine, reason), 1000);
+            machineRunning[machine] = true;
+            disableMachineControls(machine, reason);
+            enableStopButton(machine, reason);
+            sendWhatsAppStartMessage(machine, reason, formatTimestamp(now));
+
+            saveState(); // Save state to Firebase
+        }
+
+        window.stopStop = function(machine, reason) {
+            if (!machineRunning[machine]) {
+                alert('Machine is not running.');
+                return;
             }
-        });
-    });
-}
 
-	function resetAll() {
-	
-	// Step 1: Prompt for password
-    const password = prompt("Please enter the password:");
-    if (password !== "1234") {
-        alert("Incorrect password.");
-        return; // Exit the function if the password is incorrect
-    }
+            clearInterval(machineIntervals[machine]);
+            const now = Date.now();
+            stopTimes[machine][reason].elapsed += Math.floor((now - stopTimes[machine][reason].start) / 1000);
+            stopTimes[machine][reason].start = null;
+            stopTimes[machine].totalElapsed += stopTimes[machine][reason].elapsed;
+            stopTimes[machine].machineStart = null;
+            machineRunning[machine] = false;
+            updateMachineDisplay(machine);
+            sendWhatsAppStopMessage(machine, reason, formatTimestamp(stopTimes[machine][reason].start), formatTime(stopTimes[machine][reason].elapsed), prompt('Enter PIC name'));
 
-    // Step 2: Confirm reset action
-    const confirmReset = confirm("Are you sure you want to reset all timers?");
-    if (!confirmReset) {
-        return; // Exit the function if the user cancels the reset
-    }    
+            saveState(); // Save state to Firebase
+        }
 
-// Reset all machine timers and button states
-    machines.forEach(machine => {
-        // Reset machine timers
-        stopTimes[machine].totalElapsed = 0;
-        stopTimes[machine].machineStart = null;
-        clearInterval(machineIntervals[machine]);
-        machineIntervals[machine] = null;
-        machineRunning[machine] = false;
+        window.resetMachine = function(machine) {
+            const isAnyTimerRunning = Object.values(stopTimes[machine]).some(reasonData => reasonData.start !== null);
 
-        // Reset reason timers and buttons
-        reasons.forEach(reason => {
-            stopTimes[machine][reason] = { start: null, elapsed: 0, reasonElapsed: 0, history: [] };
-            clearInterval(intervals[machine][reason]);
+            if (isAnyTimerRunning) {
+                alert('Machine cannot be reset while timers are running.');
+                return;
+            }
 
-            // Update display
-            document.getElementById(`${machine}-${reason}-time`).textContent = "00:00:00";
-            document.getElementById(`${machine}-${reason}-reason-time`).textContent = "00:00:00";
-        });
+            if (confirm('Are you sure you want to reset the machine timers?')) {
+                stopTimes[machine] = {};
+                reasons.forEach(reason => {
+                    stopTimes[machine][reason] = { start: null, elapsed: 0, reasonElapsed: 0, history: [] };
+                });
+                stopTimes[machine].totalElapsed = 0;
+                stopTimes[machine].machineStart = null;
+                saveState(); // Save state to Firebase
+                updateMachineDisplay(machine);
+            }
+        }
 
-        // Reset all buttons to initial state
-        resetMachineButtons(machine);
-        document.getElementById(`${machine}-total-time`).textContent = "00:00:00";
-    });
-
-    // Optionally, save the state
-    saveState();
-}
-
-function listenForChanges() {
-  machines.forEach(machine => {
-    reasons.forEach(reason => {
-      const dbRef = ref(database, `machines/${machine}/${reason}`);
-      onValue(dbRef, (snapshot) => {
-        const data = snapshot.val();
-        // Handle the data
-      });
-    });
-  });
-}
-
-
-
-        window.addEventListener('beforeunload', saveState);
-        init();
+        window.onload = init;
     </script>
-
-	<button class="reset-all-btn" onclick="resetAll()">Reset All</button>
-
-	    <button class="history-btn" onclick="window.location.href='history.html'">View Historical Data</button>
-
-	
-
+</head>
+<body>
+    <div id="machines"></div>
+    <input type="date" id="start-date">
+    <input type="date" id="end-date">
+    <button onclick="exportData()">Export Data</button>
 </body>
 </html>
