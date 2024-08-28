@@ -3,22 +3,71 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Timer with Firebase</title>
+    <title>Multiple Timers with Firebase</title>
     <style>
-        #timer { font-size: 24px; }
+        .timer-container { margin-bottom: 20px; }
+        .timer { font-size: 24px; }
         button { margin: 5px; }
         button:disabled { opacity: 0.5; }
     </style>
 </head>
 <body>
-    <h1>Timer Example</h1>
-    <div id="timer">00:00:00</div>
-    <button id="startButton">Start</button>
-    <button id="stopButton" disabled>Stop</button>
+    <h1>Multiple Timers Example</h1>
+    <div id="timers">
+        <!-- Timer 1 -->
+        <div class="timer-container" data-timer-id="1">
+            <h2>Change Lot</h2>
+            <div id="timer-1" class="timer">00:00:00</div>
+            <button class="startButton" data-timer-id="1">Start</button>
+            <button class="stopButton" data-timer-id="1" disabled>Stop</button>
+        </div>
+        <!-- Timer 2 -->
+        <div class="timer-container" data-timer-id="2">
+            <h2>Machine / Mould Problem</h2>
+            <div id="timer-2" class="timer">00:00:00</div>
+            <button class="startButton" data-timer-id="2">Start</button>
+            <button class="stopButton" data-timer-id="2" disabled>Stop</button>
+        </div>
+        <!-- Timer 3 -->
+        <div class="timer-container" data-timer-id="3">
+            <h2>Production Off / Lack of Manpower</h2>
+            <div id="timer-3" class="timer">00:00:00</div>
+            <button class="startButton" data-timer-id="3">Start</button>
+            <button class="stopButton" data-timer-id="3" disabled>Stop</button>
+        </div>
+        <!-- Timer 4 -->
+        <div class="timer-container" data-timer-id="4">
+            <h2>Calibration / Routine Maintenance</h2>
+            <div id="timer-4" class="timer">00:00:00</div>
+            <button class="startButton" data-timer-id="4">Start</button>
+            <button class="stopButton" data-timer-id="4" disabled>Stop</button>
+        </div>
+        <!-- Timer 5 -->
+        <div class="timer-container" data-timer-id="5">
+            <h2>Quality Issue</h2>
+            <div id="timer-5" class="timer">00:00:00</div>
+            <button class="startButton" data-timer-id="5">Start</button>
+            <button class="stopButton" data-timer-id="5" disabled>Stop</button>
+        </div>
+        <!-- Timer 6 -->
+        <div class="timer-container" data-timer-id="6">
+            <h2>Button Stuck / Double Clamp</h2>
+            <div id="timer-6" class="timer">00:00:00</div>
+            <button class="startButton" data-timer-id="6">Start</button>
+            <button class="stopButton" data-timer-id="6" disabled>Stop</button>
+        </div>
+        <!-- Timer 7 -->
+        <div class="timer-container" data-timer-id="7">
+            <h2>Others</h2>
+            <div id="timer-7" class="timer">00:00:00</div>
+            <button class="startButton" data-timer-id="7">Start</button>
+            <button class="stopButton" data-timer-id="7" disabled>Stop</button>
+        </div>
+    </div>
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
+        import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
@@ -36,14 +85,14 @@
         const app = initializeApp(firebaseConfig);
         const database = getDatabase(app);
 
-        let timerInterval;
-        let startTime;
-        let elapsedTime = 0;
-        let isRunning = false;
-        let lastUpdateTimestamp = 0; // The last timestamp when Firebase was updated
+        let timerIntervals = {};
+        let startTimes = {};
+        let elapsedTimes = {};
+        let isRunnings = {};
+        let lastUpdateTimestamps = {};
 
-        function updateTimerDisplay() {
-            const timerDisplay = document.getElementById('timer');
+        function updateTimerDisplay(timerId, elapsedTime, isRunning, lastUpdateTimestamp) {
+            const timerDisplay = document.getElementById(`timer-${timerId}`);
             const now = Date.now();
             const timeElapsed = isRunning ? elapsedTime + (now - lastUpdateTimestamp) : elapsedTime;
             const seconds = Math.floor((timeElapsed / 1000) % 60);
@@ -52,90 +101,104 @@
             timerDisplay.innerText = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
         }
 
-        function startTimer() {
-            if (!isRunning) {
-                startTime = Date.now();
-                lastUpdateTimestamp = startTime;
-                timerInterval = setInterval(() => {
-                    updateTimerDisplay();
-                    updateFirebase();  // Update Firebase every second
-                }, 1000);
-                isRunning = true;
-                document.getElementById('startButton').disabled = true;
-                document.getElementById('stopButton').disabled = false;
-                updateFirebase({ isRunning: true }); // Initial update to set isRunning to true in Firebase
+        function startTimer(timerId) {
+            const timerRef = ref(database, `timers/${timerId}/`);
+            startTimes[timerId] = Date.now();
+            lastUpdateTimestamps[timerId] = startTimes[timerId];
+            timerIntervals[timerId] = setInterval(() => {
+                updateTimerDisplay(timerId, elapsedTimes[timerId], isRunnings[timerId], lastUpdateTimestamps[timerId]);
+                updateFirebase(timerId);  // Update Firebase every second
+            }, 1000);
+            isRunnings[timerId] = true;
+            document.querySelector(`button[data-timer-id="${timerId}"].startButton`).disabled = true;
+            document.querySelector(`button[data-timer-id="${timerId}"].stopButton`).disabled = false;
+            updateFirebase(timerId, { isRunning: true });
+        }
+
+        function stopTimer(timerId) {
+            const timerRef = ref(database, `timers/${timerId}/`);
+            if (isRunnings[timerId]) {
+                clearInterval(timerIntervals[timerId]);
+                const now = Date.now();
+                elapsedTimes[timerId] += now - lastUpdateTimestamps[timerId];
+                isRunnings[timerId] = false;
+                updateFirebase(timerId, { isRunning: false });
+                document.querySelector(`button[data-timer-id="${timerId}"].startButton`).disabled = false;
+                document.querySelector(`button[data-timer-id="${timerId}"].stopButton`).disabled = true;
             }
         }
 
-        function stopTimer() {
-            if (isRunning) {
-                clearInterval(timerInterval);
-                timerInterval = null;
-                elapsedTime += Date.now() - lastUpdateTimestamp;
-                isRunning = false;
-                updateFirebase({ isRunning: false });
-                document.getElementById('startButton').disabled = false;
-                document.getElementById('stopButton').disabled = true;
-            }
-        }
-
-        function updateFirebase(state = {}) {
-            const timerRef = ref(database, 'timer/');
+        function updateFirebase(timerId, state = {}) {
+            const timerRef = ref(database, `timers/${timerId}/`);
             const now = Date.now();
-            const currentElapsedTime = elapsedTime + (isRunning ? now - lastUpdateTimestamp : 0);
+            const currentElapsedTime = elapsedTimes[timerId] + (isRunnings[timerId] ? now - lastUpdateTimestamps[timerId] : 0);
+
+            // Ensure elapsedTime is a number and not NaN
+            if (isNaN(currentElapsedTime)) {
+                console.error(`Invalid elapsedTime for timer ${timerId}:`, currentElapsedTime);
+                return;
+            }
 
             set(timerRef, {
-                elapsedTime: currentElapsedTime, // Update with the current elapsed time
-                isRunning: state.isRunning !== undefined ? state.isRunning : isRunning,
-                lastUpdateTimestamp: now  // Update with current time
+                elapsedTime: currentElapsedTime,
+                isRunning: state.isRunning !== undefined ? state.isRunning : isRunnings[timerId],
+                lastUpdateTimestamp: now
             }).catch((error) => {
                 console.error('Error updating Firebase: ', error);
             });
         }
 
-        function loadTimer() {
-            const timerRef = ref(database, 'timer/');
-            
+        function loadTimer(timerId) {
+            const timerRef = ref(database, `timers/${timerId}/`);
+
             // Listen for changes in the database in real-time
             onValue(timerRef, (snapshot) => {
                 if (snapshot.exists()) {
                     const data = snapshot.val();
-                    elapsedTime = data.elapsedTime || 0;
-                    isRunning = data.isRunning || false;
-                    lastUpdateTimestamp = data.lastUpdateTimestamp || Date.now();
+                    elapsedTimes[timerId] = data.elapsedTime || 0;
+                    isRunnings[timerId] = data.isRunning || false;
+                    lastUpdateTimestamps[timerId] = data.lastUpdateTimestamp || Date.now();
 
-                    if (isRunning) {
-                        startTime = Date.now();
-                        timerInterval = setInterval(() => {
-                            updateTimerDisplay();
-                            updateFirebase();  // Update Firebase every second
+                    if (isRunnings[timerId]) {
+                        startTimes[timerId] = Date.now();
+                        timerIntervals[timerId] = setInterval(() => {
+                            updateTimerDisplay(timerId, elapsedTimes[timerId], isRunnings[timerId], lastUpdateTimestamps[timerId]);
+                            updateFirebase(timerId);  // Update Firebase every second
                         }, 1000);
-                        document.getElementById('startButton').disabled = true;
-                        document.getElementById('stopButton').disabled = false;
+                        document.querySelector(`button[data-timer-id="${timerId}"].startButton`).disabled = true;
+                        document.querySelector(`button[data-timer-id="${timerId}"].stopButton`).disabled = false;
                     } else {
-                        if (timerInterval) {
-                            clearInterval(timerInterval);
-                            timerInterval = null;
+                        if (timerIntervals[timerId]) {
+                            clearInterval(timerIntervals[timerId]);
+                            timerIntervals[timerId] = null;
                         }
-                        updateTimerDisplay();
-                        document.getElementById('startButton').disabled = false;
-                        document.getElementById('stopButton').disabled = true;
+                        updateTimerDisplay(timerId, elapsedTimes[timerId], isRunnings[timerId], lastUpdateTimestamps[timerId]);
+                        document.querySelector(`button[data-timer-id="${timerId}"].startButton`).disabled = false;
+                        document.querySelector(`button[data-timer-id="${timerId}"].stopButton`).disabled = true;
                     }
                 }
-            }, (error) => {
-                console.error('Error loading timer from Firebase: ', error);
             });
         }
 
-        window.addEventListener('load', loadTimer);
-        window.addEventListener('beforeunload', () => {
-            if (isRunning) {
-                updateFirebase(); // Ensure Firebase is updated before page unload
-            }
+        // Initialize all timers
+        for (let timerId = 1; timerId <= 7; timerId++) {
+            loadTimer(timerId);
+        }
+
+        // Set up event listeners
+        document.querySelectorAll('.startButton').forEach(button => {
+            button.addEventListener('click', () => {
+                const timerId = button.getAttribute('data-timer-id');
+                startTimer(timerId);
+            });
         });
 
-        document.getElementById('startButton').addEventListener('click', startTimer);
-        document.getElementById('stopButton').addEventListener('click', stopTimer);
+        document.querySelectorAll('.stopButton').forEach(button => {
+            button.addEventListener('click', () => {
+                const timerId = button.getAttribute('data-timer-id');
+                stopTimer(timerId);
+            });
+        });
     </script>
 </body>
 </html>
