@@ -3,12 +3,24 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Machine Stop Time Tracker</title>
+    <title>Timer with Firebase</title>
+    <style>
+        #timer { font-size: 24px; }
+        button { margin: 5px; }
+        button:disabled { opacity: 0.5; }
+    </style>
+</head>
+<body>
+    <h1>Timer Example</h1>
+    <div id="timer">00:00:00</div>
+    <button id="startButton">Start</button>
+    <button id="stopButton" disabled>Stop</button>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { getAnalytics } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-analytics.js";
-        import { getDatabase, ref, set, onValue } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
+        import { getDatabase, ref, set, update, get } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
 
+        // Your web app's Firebase configuration
         const firebaseConfig = {
             apiKey: "AIzaSyByW5mvlzUYirCE6BKChE1TbPUqsHAJCoI",
             authDomain: "tracker-80c47.firebaseapp.com",
@@ -20,328 +32,104 @@
             measurementId: "G-QWR18QPPX2"
         };
 
+        // Initialize Firebase
         const app = initializeApp(firebaseConfig);
-        const analytics = getAnalytics(app);
         const database = getDatabase(app);
 
-        const machines = ['Machine1', 'Machine2'];  // Replace with your actual machines
-        const reasons = ['Reason1', 'Reason2'];    // Replace with your actual reasons
+        let timerInterval;
+        let startTime;
+        let elapsedTime = 0;
+        let isRunning = false;
+        let lastUpdateTimestamp = 0; // The last timestamp when Firebase was updated
 
-        let stopTimes = {};
-        let intervals = {};
-        let machineIntervals = {};
-        let machineRunning = {};
-        let csvData = [];
-
-        window.init = function() {
-            const machineContainer = document.getElementById('machines');
-            machines.forEach(machine => {
-                stopTimes[machine] = {};
-                intervals[machine] = {};
-                stopTimes[machine].totalElapsed = 0;
-                stopTimes[machine].machineStart = null;
-                machineIntervals[machine] = null;
-                machineRunning[machine] = false;
-
-                const machineDiv = document.createElement('div');
-                machineDiv.className = 'machine';
-                machineDiv.innerHTML = `<h2>Machine ${machine}<span id="${machine}-total-time">00:00:00</span></h2>`;
-
-                reasons.forEach(reason => {
-                    stopTimes[machine][reason] = { 
-                        start: null, 
-                        elapsed: 0, 
-                        reasonElapsed: 0, 
-                        history: [],
-                        startEnabled: true,   // Button state - start enabled
-                        stopEnabled: false    // Button state - stop disabled
-                    };
-
-                    const reasonDiv = document.createElement('div');
-                    reasonDiv.className = 'stop-reason';
-                    reasonDiv.innerHTML = `
-                        <div id="${machine}-${reason}-reason-name">${reason}</div>
-                        <span id="${machine}-${reason}-reason-time">00:00:00</span>
-                        <button id="${machine}-${reason}-start-btn" onclick="startStop('${machine}', '${reason}')">Start</button>
-                        <button id="${machine}-${reason}-stop-btn" class="stop disabled" onclick="stopStop('${machine}', '${reason}')" disabled>Stop</button>
-                        <span id="${machine}-${reason}-time">00:00:00</span>
-                    `;
-                    machineDiv.appendChild(reasonDiv);
-                });
-
-                machineDiv.innerHTML += `
-                    <button class="reset-btn" onclick="resetMachine('${machine}')">Reset</button>
-                `;
-
-                machineContainer.appendChild(machineDiv);
-            });
-
-            loadState();
+        function updateTimerDisplay() {
+            const timerDisplay = document.getElementById('timer');
+            const now = Date.now();
+            const timeElapsed = isRunning ? elapsedTime + (now - lastUpdateTimestamp) : elapsedTime;
+            const seconds = Math.floor((timeElapsed / 1000) % 60);
+            const minutes = Math.floor((timeElapsed / (1000 * 60)) % 60);
+            const hours = Math.floor((timeElapsed / (1000 * 60 * 60)) % 24);
+            timerDisplay.innerText = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
         }
 
-        window.updateDisplay = function(machine, reason) {
-            const timeDisplay = document.getElementById(`${machine}-${reason}-time`);
-            const reasonTimeDisplay = document.getElementById(`${machine}-${reason}-reason-time`);
+        function startTimer() {
+    if (!isRunning) {
+        startTime = Date.now();
+        lastUpdateTimestamp = startTime;
+        timerInterval = setInterval(() => {
+            updateTimerDisplay();
+            updateFirebase();  // Update Firebase every second
+        }, 1000);
+        isRunning = true;
+        document.getElementById('startButton').disabled = true;
+        document.getElementById('stopButton').disabled = false;
+        updateFirebase({ isRunning: true }); // Initial update to set isRunning to true in Firebase
+    }
+}
 
-            if (!timeDisplay || !reasonTimeDisplay) return;
-
-            let elapsed = stopTimes[machine][reason].elapsed || 0;
-            let reasonElapsed = stopTimes[machine][reason].reasonElapsed || 0;
-
-            if (stopTimes[machine][reason].start !== null) {
-                const now = Date.now();
-                const diff = Math.floor((now - stopTimes[machine][reason].start) / 1000);
-                elapsed += diff;
-                reasonElapsed += diff;
-            }
-            timeDisplay.textContent = formatTime(elapsed);
-            reasonTimeDisplay.textContent = formatTime(reasonElapsed);
-        }
-
-        window.updateMachineDisplay = function(machine) {
-            const totalTimeDisplay = document.getElementById(`${machine}-total-time`);
-
-            if (!totalTimeDisplay) return;
-
-            let elapsed = stopTimes[machine].totalElapsed || 0;
-            if (stopTimes[machine].machineStart !== null) {
-                elapsed += Math.floor((Date.now() - stopTimes[machine].machineStart) / 1000);
-            }
-            totalTimeDisplay.textContent = formatTime(elapsed);
-        }
-
-        function formatTime(seconds) {
-            const hours = Math.floor(seconds / 3600);
-            const minutes = Math.floor((seconds % 3600) / 60);
-            const secs = seconds % 60;
-            return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-        }
-
-        function formatTimestamp(timestamp) {
-            const date = new Date(timestamp);
-            if (isNaN(date.getTime())) return '';
-
-            const year = date.getFullYear();
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const day = String(date.getDate()).padStart(2, '0');
-            const hours = String(date.getHours()).padStart(2, '0');
-            const minutes = String(date.getMinutes()).padStart(2, '0');
-            const seconds = String(date.getSeconds()).padStart(2, '0');
-
-            return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
-        }
-
-        function enableStopButton(machine, reason) {
-            const stopBtn = document.getElementById(`${machine}-${reason}-stop-btn`);
-            if (stopBtn) {
-                stopBtn.classList.remove('disabled');
-                stopBtn.disabled = false;
-                stopTimes[machine][reason].stopEnabled = true;  // Update state
+        function stopTimer() {
+            if (isRunning) {
+                clearInterval(timerInterval);
+                timerInterval = null;
+                elapsedTime += Date.now() - lastUpdateTimestamp;
+                isRunning = false;
+                updateFirebase({ isRunning: false });
+                document.getElementById('startButton').disabled = false;
+                document.getElementById('stopButton').disabled = true;
             }
         }
 
-        function disableMachineControls(machine, activeReason) {
-            reasons.forEach(reason => {
-                if (reason !== activeReason) {
-                    const startBtn = document.getElementById(`${machine}-${reason}-start-btn`);
-                    const stopBtn = document.getElementById(`${machine}-${reason}-stop-btn`);
-                    if (startBtn) {
-                        startBtn.classList.add('disabled');
-                        startBtn.disabled = true;
-                        stopTimes[machine][reason].startEnabled = false; // Update state
-                    }
-                    if (stopBtn) {
-                        stopBtn.classList.add('disabled');
-                        stopBtn.disabled = true;
-                        stopTimes[machine][reason].stopEnabled = false;  // Update state
+        function updateFirebase(state = {}) {
+    const timerRef = ref(database, 'timer/');
+    const now = Date.now();
+    const currentElapsedTime = elapsedTime + (isRunning ? now - lastUpdateTimestamp : 0);
+
+    set(timerRef, {
+        elapsedTime: currentElapsedTime, // Update with the current elapsed time
+        isRunning: state.isRunning !== undefined ? state.isRunning : isRunning,
+        lastUpdateTimestamp: now  // Update with current time
+    }).catch((error) => {
+        console.error('Error updating Firebase: ', error);
+    });
+}
+
+        function loadTimer() {
+            const timerRef = ref(database, 'timer/');
+            get(timerRef).then((snapshot) => {
+                if (snapshot.exists()) {
+                    const data = snapshot.val();
+                    elapsedTime = data.elapsedTime || 0;
+                    isRunning = data.isRunning || false;
+                    lastUpdateTimestamp = data.lastUpdateTimestamp || Date.now();
+
+                    if (isRunning) {
+                        startTime = Date.now();
+                        timerInterval = setInterval(() => {
+                            updateTimerDisplay();
+                            updateFirebase();  // Update Firebase every second
+                        }, 1000);
+                        document.getElementById('startButton').disabled = true;
+                        document.getElementById('stopButton').disabled = false;
+                    } else {
+                        updateTimerDisplay();
+                        document.getElementById('startButton').disabled = false;
+                        document.getElementById('stopButton').disabled = true;
                     }
                 }
+            }).catch((error) => {
+                console.error('Error loading timer from Firebase: ', error);
             });
         }
 
-        function sendWhatsAppStartMessage(machineName, stopReason, startTime) {
-            const message = `${machineName} Stop\nReason: ${stopReason}\nTime: ${startTime}`;
-            const encodedMessage = encodeURIComponent(message);
-            const phoneNumber = '60175347817'; 
-            const whatsappURL = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
-
-            window.open(whatsappURL, '_blank');
-        }
-
-        function sendWhatsAppStopMessage(machineName, stopReason, startTime, totalElapsed, picName) {
-            const message = `${machineName} Stop\nReason: ${stopReason}\nTime: ${startTime}\nElapsed: ${totalElapsed}\nPIC Name: ${picName}`;
-            const encodedMessage = encodeURIComponent(message);
-            const phoneNumber = '60175347817';
-            const whatsappURL = `https://wa.me/${phoneNumber}?text=${encodedMessage}`;
-
-            window.open(whatsappURL, '_blank');
-        }
-
-        function enableAllControls(machine) {
-            reasons.forEach(reason => {
-                const startBtn = document.getElementById(`${machine}-${reason}-start-btn`);
-                const stopBtn = document.getElementById(`${machine}-${reason}-stop-btn`);
-                const reasonName = document.getElementById(`${machine}-${reason}-reason-name`);
-                if (startBtn) {
-                    startBtn.classList.remove('disabled');
-                    startBtn.disabled = false;
-                    stopTimes[machine][reason].startEnabled = true; // Update state
-                }
-                if (stopBtn) {
-                    stopBtn.classList.remove('disabled');
-                    stopBtn.disabled = false;
-                    stopTimes[machine][reason].stopEnabled = true; // Update state
-                }
-                if (reasonName) {
-                    reasonName.classList.remove('disabled');
-                }
-            });
-        }
-
-        function exportData() {
-            const startDate = document.getElementById('start-date').value;
-            const endDate = document.getElementById('end-date').value;
-
-            if (!startDate || !endDate) {
-                alert('Please select start and end dates.');
-                return;
+        window.addEventListener('load', loadTimer);
+        window.addEventListener('beforeunload', () => {
+            if (isRunning) {
+                updateFirebase(); // Ensure Firebase is updated before page unload
             }
+        });
 
-            let filteredData = csvData.filter(row => {
-                let rowDate = new Date(row[0]).getTime();
-                return rowDate >= new Date(startDate).getTime() && rowDate <= new Date(endDate).getTime();
-            });
-
-            let csvContent = "data:text/csv;charset=utf-8," 
-            + "Machine,Reason,Start Time,End Time,Elapsed Time (hh:mm:ss),PIC Name\n" 
-            + filteredData.map(row => row.join(",")).join("\n");
-
-            let encodedUri = encodeURI(csvContent);
-            let link = document.createElement("a");
-            link.setAttribute("href", encodedUri);
-            link.setAttribute("download", "machine_stop_time_log.csv");
-            document.body.appendChild(link);
-
-            link.click();
-        }
-
-        window.startStop = function(machine, reason) {
-            if (!stopTimes[machine][reason].start) {
-                stopTimes[machine][reason].start = Date.now();
-                stopTimes[machine][reason].history.push({
-                    start: stopTimes[machine][reason].start,
-                    end: null,
-                    elapsed: 0
-                });
-
-                stopTimes[machine].machineStart = Date.now();
-                machineRunning[machine] = true;
-
-                enableStopButton(machine, reason);
-                disableMachineControls(machine, reason);
-
-                intervals[machine][reason] = setInterval(() => updateDisplay(machine, reason), 1000);
-
-                machineIntervals[machine] = setInterval(() => updateMachineDisplay(machine), 1000);
-
-                sendWhatsAppStartMessage(machine, reason, formatTimestamp(stopTimes[machine][reason].start));
-            }
-            saveState(machine, reason); // Save state after starting
-        }
-
-        window.stopStop = function(machine, reason) {
-            if (stopTimes[machine][reason].start !== null) {
-                const stopTime = Date.now();
-                const elapsed = Math.floor((stopTime - stopTimes[machine][reason].start) / 1000);
-                stopTimes[machine][reason].elapsed += elapsed;
-                stopTimes[machine][reason].reasonElapsed += elapsed;
-                stopTimes[machine].totalElapsed += elapsed;
-                clearInterval(intervals[machine][reason]);
-                clearInterval(machineIntervals[machine]);
-                stopTimes[machine][reason].history[stopTimes[machine][reason].history.length - 1].end = stopTime;
-                stopTimes[machine][reason].history[stopTimes[machine][reason].history.length - 1].elapsed = elapsed;
-
-                let totalElapsed = formatTime(stopTimes[machine][reason].elapsed);
-                let picName = prompt("Enter your name (PIC):");
-                if (picName) {
-                    csvData.push([
-                        `Machine ${machine}`,
-                        `Reason ${reason}`,
-                        formatTimestamp(stopTimes[machine][reason].start),
-                        formatTimestamp(stopTime),
-                        totalElapsed,
-                        picName
-                    ]);
-                    sendWhatsAppStopMessage(machine, reason, formatTimestamp(stopTimes[machine][reason].start), totalElapsed, picName);
-                }
-
-                stopTimes[machine][reason].start = null;
-                stopTimes[machine].machineStart = null;
-                machineRunning[machine] = false;
-
-                enableAllControls(machine);
-            }
-            saveState(machine, reason); // Save state after stopping
-        }
-
-        function saveState(machine, reason) {
-            const state = {
-                stopTimes: stopTimes[machine],
-                machineRunning: machineRunning[machine],
-                startEnabled: stopTimes[machine][reason].startEnabled,
-                stopEnabled: stopTimes[machine][reason].stopEnabled
-            };
-
-            const dbRef = ref(database, `machineStates/${machine}/${reason}`);
-            set(dbRef, state).catch(error => {
-                console.error("Failed to save state:", error);
-            });
-        }
-
-        function loadState() {
-            machines.forEach(machine => {
-                reasons.forEach(reason => {
-                    const dbRef = ref(database, `machineStates/${machine}/${reason}`);
-                    onValue(dbRef, snapshot => {
-                        const data = snapshot.val();
-                        if (data) {
-                            stopTimes[machine] = data.stopTimes;
-                            machineRunning[machine] = data.machineRunning;
-
-                            // Set button states based on loaded data
-                            if (data.startEnabled) {
-                                const startBtn = document.getElementById(`${machine}-${reason}-start-btn`);
-                                if (startBtn) startBtn.disabled = false;
-                            }
-                            if (data.stopEnabled) {
-                                const stopBtn = document.getElementById(`${machine}-${reason}-stop-btn`);
-                                if (stopBtn) stopBtn.disabled = false;
-                            }
-
-                            if (machineRunning[machine]) {
-                                machineIntervals[machine] = setInterval(() => updateMachineDisplay(machine), 1000);
-                                reasons.forEach(r => {
-                                    if (stopTimes[machine][r].start !== null) {
-                                        intervals[machine][r] = setInterval(() => updateDisplay(machine, r), 1000);
-                                    }
-                                });
-                            }
-                        }
-                    });
-                });
-            });
-        }
+        document.getElementById('startButton').addEventListener('click', startTimer);
+        document.getElementById('stopButton').addEventListener('click', stopTimer);
     </script>
-    <style>
-        .stop.disabled, .reset-btn.disabled {
-            background-color: #ccc;
-            cursor: not-allowed;
-        }
-    </style>
-</head>
-<body onload="init()">
-    <h1>Machine Stop Time Tracker</h1>
-    <div id="machines"></div>
-    <button onclick="exportData()">Export to CSV</button>
 </body>
 </html>
