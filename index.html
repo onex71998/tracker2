@@ -18,7 +18,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-app.js";
-        import { getDatabase, ref, set, update, get } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
+        import { getDatabase, ref, set, get, onValue } from "https://www.gstatic.com/firebasejs/10.13.0/firebase-database.js";
 
         // Your web app's Firebase configuration
         const firebaseConfig = {
@@ -53,19 +53,19 @@
         }
 
         function startTimer() {
-    if (!isRunning) {
-        startTime = Date.now();
-        lastUpdateTimestamp = startTime;
-        timerInterval = setInterval(() => {
-            updateTimerDisplay();
-            updateFirebase();  // Update Firebase every second
-        }, 1000);
-        isRunning = true;
-        document.getElementById('startButton').disabled = true;
-        document.getElementById('stopButton').disabled = false;
-        updateFirebase({ isRunning: true }); // Initial update to set isRunning to true in Firebase
-    }
-}
+            if (!isRunning) {
+                startTime = Date.now();
+                lastUpdateTimestamp = startTime;
+                timerInterval = setInterval(() => {
+                    updateTimerDisplay();
+                    updateFirebase();  // Update Firebase every second
+                }, 1000);
+                isRunning = true;
+                document.getElementById('startButton').disabled = true;
+                document.getElementById('stopButton').disabled = false;
+                updateFirebase({ isRunning: true }); // Initial update to set isRunning to true in Firebase
+            }
+        }
 
         function stopTimer() {
             if (isRunning) {
@@ -80,22 +80,24 @@
         }
 
         function updateFirebase(state = {}) {
-    const timerRef = ref(database, 'timer/');
-    const now = Date.now();
-    const currentElapsedTime = elapsedTime + (isRunning ? now - lastUpdateTimestamp : 0);
+            const timerRef = ref(database, 'timer/');
+            const now = Date.now();
+            const currentElapsedTime = elapsedTime + (isRunning ? now - lastUpdateTimestamp : 0);
 
-    set(timerRef, {
-        elapsedTime: currentElapsedTime, // Update with the current elapsed time
-        isRunning: state.isRunning !== undefined ? state.isRunning : isRunning,
-        lastUpdateTimestamp: now  // Update with current time
-    }).catch((error) => {
-        console.error('Error updating Firebase: ', error);
-    });
-}
+            set(timerRef, {
+                elapsedTime: currentElapsedTime, // Update with the current elapsed time
+                isRunning: state.isRunning !== undefined ? state.isRunning : isRunning,
+                lastUpdateTimestamp: now  // Update with current time
+            }).catch((error) => {
+                console.error('Error updating Firebase: ', error);
+            });
+        }
 
         function loadTimer() {
             const timerRef = ref(database, 'timer/');
-            get(timerRef).then((snapshot) => {
+            
+            // Listen for changes in the database in real-time
+            onValue(timerRef, (snapshot) => {
                 if (snapshot.exists()) {
                     const data = snapshot.val();
                     elapsedTime = data.elapsedTime || 0;
@@ -111,12 +113,16 @@
                         document.getElementById('startButton').disabled = true;
                         document.getElementById('stopButton').disabled = false;
                     } else {
+                        if (timerInterval) {
+                            clearInterval(timerInterval);
+                            timerInterval = null;
+                        }
                         updateTimerDisplay();
                         document.getElementById('startButton').disabled = false;
                         document.getElementById('stopButton').disabled = true;
                     }
                 }
-            }).catch((error) => {
+            }, (error) => {
                 console.error('Error loading timer from Firebase: ', error);
             });
         }
